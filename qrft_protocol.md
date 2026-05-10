@@ -11,9 +11,10 @@ This project uses a deliberately simple black/white cell protocol.
 - Header repeats: 5.
 - Payload capacity: `260 * 120 / 8 - 32 * 5 = 3740` bytes per frame.
 
-The sender displays one frame at a time. Keyboard input advances the frame, so a
-receiver that can send keys through the capture device can deterministically
-capture every frame instead of relying on timing.
+The sender displays one frame at a time. Keyboard input advances the frame, and
+typing a 1-based frame number followed by `Enter` jumps directly to that frame.
+A receiver that can send keys through the capture device can request missing
+frames deterministically instead of relying on timing.
 
 Header, big endian:
 

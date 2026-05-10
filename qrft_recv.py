@@ -103,21 +103,28 @@ def find_frame_by_projection(bw, shape):
     ih, iw = shape[:2]
     expected_w = min(iw, int(round(TW * min(iw / float(TW), ih / float(TH)))))
     min_w = max(200, int(expected_w * 0.75))
+    dark = bw > 0
+    row_counts = np.sum(dark, axis=1)
+    ys = np.flatnonzero(row_counts >= min_w)
     candidates = []
-    for y in range(0, ih):
-        runs = [r for r in dark_runs(bw[y] > 0) if r[2] >= min_w]
-        for x1, x2, width in runs:
-            if x1 <= 2 or x2 >= iw - 2:
-                continue
-            cell = int(round(width / float(TW)))
-            if cell < 2:
-                continue
-            expected_w = TW * cell
-            expected_h = TH * cell
-            if x1 + expected_w > iw + cell or y + expected_h > ih + cell:
-                continue
-            score = expected_w - abs(width - expected_w) * 3
-            candidates.append((score, x1, y, expected_w, expected_h, cell))
+    for y in ys:
+        xs = np.flatnonzero(dark[y])
+        if xs.size == 0:
+            continue
+        x1 = int(xs[0])
+        x2 = int(xs[-1])
+        width = x2 - x1 + 1
+        if x1 <= 2 or x2 >= iw - 2 or width < min_w:
+            continue
+        cell = int(round(width / float(TW)))
+        if cell < 2:
+            continue
+        expected_w = TW * cell
+        expected_h = TH * cell
+        if x1 + expected_w > iw + cell or y + expected_h > ih + cell:
+            continue
+        score = expected_w - abs(width - expected_w) * 3
+        candidates.append((score, x1, int(y), expected_w, expected_h, cell))
     if not candidates:
         return None
 
@@ -208,6 +215,24 @@ def derive_advance_url(snapshot_url, key):
     return urlunsplit((parts.scheme, parts.netloc, "/api/hid/events/send_key", query, ""))
 
 
+def key_url(template, snapshot_url, key):
+    if template:
+        return template.format(key=quote_plus(str(key)))
+    return derive_advance_url(snapshot_url, str(key))
+
+
+def send_key(template, snapshot_url, key, verify_tls=True, method="post"):
+    send_advance(key_url(template, snapshot_url, key), verify_tls=verify_tls, method=method)
+
+
+def send_frame_select(template, snapshot_url, frame_idx, verify_tls=True, method="post", key_delay=0.03):
+    for ch in str(frame_idx + 1):
+        send_key(template, snapshot_url, ch, verify_tls=verify_tls, method=method)
+        if key_delay:
+            time.sleep(key_delay)
+    send_key(template, snapshot_url, "Enter", verify_tls=verify_tls, method=method)
+
+
 def send_advance(url, verify_tls=True, method="post"):
     try:
         import requests
@@ -266,6 +291,24 @@ def ingest(paths, frames):
         frames[frame["idx"]] = frame["payload"]
         print("ok {}: frame {}/{}".format(name, frame["idx"] + 1, frame["total"]))
     return meta, ok
+
+
+def accept_frame(frame, frames, meta, name):
+    if frame is None:
+        return meta, False
+    if meta is None:
+        meta = frame
+    elif (
+        frame["total"] != meta["total"]
+        or frame["file_size"] != meta["file_size"]
+        or frame["file_crc"] != meta["file_crc"]
+    ):
+        print("skip {}: file metadata mismatch".format(name))
+        return meta, False
+    is_new = frame["idx"] not in frames
+    frames[frame["idx"]] = frame["payload"]
+    print("ok {}: frame {}/{}{}".format(name, frame["idx"] + 1, frame["total"], " new" if is_new else " dup"))
+    return meta, is_new
 
 
 def write_if_complete(meta, frames, out_path):
@@ -343,8 +386,13 @@ def main():
     ap.add_argument("--keep-folder", action="store_true", help="keep existing snapshot images before URL capture")
     ap.add_argument("--advance-key", default="", help="derive a KVM send_key URL and press this key after each capture")
     ap.add_argument("--advance-url", default="", help="explicit URL to call after each capture to advance the sender")
+    ap.add_argument("--key-url-template", default="", help="URL template for key presses, using {key} placeholder")
     ap.add_argument("--advance-method", default="post", choices=("post", "get"), help="HTTP method for --advance-url")
     ap.add_argument("--advance-settle", type=float, default=0.25, help="seconds to wait after advancing before next capture")
+    ap.add_argument("--targeted", action="store_true", help="request missing frame numbers instead of only pressing next")
+    ap.add_argument("--poll-delay", type=float, default=0.15, help="delay between retry captures while waiting for a target frame")
+    ap.add_argument("--target-retries", type=int, default=4, help="extra captures after selecting a target frame")
+    ap.add_argument("--profile", action="store_true", help="print snapshot/decode/key timing")
     args = ap.parse_args()
 
     frames = {}
@@ -360,17 +408,56 @@ def main():
         while True:
             n += 1
             path = os.path.join(args.folder, "cap_{:05d}.jpg".format(n))
+            t0 = time.perf_counter()
             snapshot_to_file(args.url, path, verify_tls=not args.insecure)
-            got_meta, _ok = ingest([path], frames)
-            if got_meta is not None:
-                meta = got_meta if meta is None else meta
+            t1 = time.perf_counter()
+            frame, err = decode_image(path)
+            t2 = time.perf_counter()
+            if err:
+                print("skip {}: {}".format(os.path.basename(path), err))
+            else:
+                meta, _is_new = accept_frame(frame, frames, meta, os.path.basename(path))
+            if args.profile:
+                print("time {}: snapshot={:.3f}s decode={:.3f}s".format(os.path.basename(path), t1 - t0, t2 - t1))
             if write_if_complete(meta, frames, args.out):
                 break
             if args.max_captures and n >= args.max_captures:
                 break
-            if advance_url:
+            if args.targeted and meta:
+                missing = [i for i in range(meta["total"]) if i not in frames]
+                target = missing[0] if missing else None
+                if target is not None:
+                    kt0 = time.perf_counter()
+                    send_frame_select(args.key_url_template, args.url, target, verify_tls=not args.insecure, method=args.advance_method)
+                    time.sleep(args.advance_settle)
+                    kt1 = time.perf_counter()
+                    if args.profile:
+                        print("time target {}: key+settle={:.3f}s".format(target + 1, kt1 - kt0))
+                    for _try in range(args.target_retries):
+                        n += 1
+                        path = os.path.join(args.folder, "cap_{:05d}.jpg".format(n))
+                        t0 = time.perf_counter()
+                        snapshot_to_file(args.url, path, verify_tls=not args.insecure)
+                        t1 = time.perf_counter()
+                        frame, err = decode_image(path)
+                        t2 = time.perf_counter()
+                        if err:
+                            print("skip {}: {}".format(os.path.basename(path), err))
+                        else:
+                            meta, _is_new = accept_frame(frame, frames, meta, os.path.basename(path))
+                            if frame["idx"] == target and target in frames:
+                                break
+                        if args.profile:
+                            print("time {}: snapshot={:.3f}s decode={:.3f}s".format(os.path.basename(path), t1 - t0, t2 - t1))
+                        time.sleep(args.poll_delay)
+                    if write_if_complete(meta, frames, args.out):
+                        break
+            elif advance_url:
+                kt0 = time.perf_counter()
                 send_advance(advance_url, verify_tls=not args.insecure, method=args.advance_method)
                 time.sleep(args.advance_settle)
+                if args.profile:
+                    print("time advance: key+settle={:.3f}s".format(time.perf_counter() - kt0))
             else:
                 time.sleep(args.interval)
     else:

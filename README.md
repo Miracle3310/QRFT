@@ -79,15 +79,22 @@ For self-signed HTTPS endpoints, add `--insecure`. If the capture endpoint is
 not compatible with this URL mode, keep using folder mode.
 
 For deterministic multi-frame capture, run the sender in its default key-step
-mode and let the receiver advance the source display after every screenshot:
+mode and let the receiver request missing frames through the keyboard endpoint:
 
 ```bash
-python qrft_recv.py --url "https://your-kvm-host/api/streamer/snapshot?save=1&preview_quality=95" --advance-key Enter --folder snapshot --out out/received.bin --insecure
+python qrft_recv.py --url "https://your-kvm-host/api/streamer/snapshot?save=1&preview_quality=95" --advance-key Enter --targeted --folder snapshot --out out/received.bin --insecure
 ```
 
-`--advance-key` derives a KVM-style `send_key` URL from the snapshot URL. If the
-keyboard endpoint is different, pass it explicitly:
+In targeted mode, the receiver types a frame number followed by `Enter` to make
+the sender jump directly to a missing frame. This avoids relying on fixed timing
+or repeatedly cycling through all frames.
+
+`--advance-key` derives a KVM-style `send_key` URL from the snapshot URL for
+simple next-frame mode. If the keyboard endpoint is different, pass a template
+explicitly:
 
 ```bash
-python qrft_recv.py --url "https://your-kvm-host/api/streamer/snapshot?save=1&preview_quality=95" --advance-url "https://your-kvm-host/api/hid/events/send_key?key=Enter&finish=1" --folder snapshot --out out/received.bin --insecure
+python qrft_recv.py --url "https://your-kvm-host/api/streamer/snapshot?save=1&preview_quality=95" --key-url-template "https://your-kvm-host/api/hid/events/send_key?key={key}&finish=1" --targeted --folder snapshot --out out/received.bin --insecure
 ```
+
+Add `--profile` to print snapshot, decode, and key/settle timing.

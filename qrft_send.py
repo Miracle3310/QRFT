@@ -12,7 +12,7 @@ for i in range(N):
  q=d[i*C:(i+1)*C];h=struct.pack(">4sBBHHIHII8s",b"QF10",1,D,i,N,len(d),len(q),fc,zlib.crc32(q)&0xffffffff,b"\0"*8);F+=[B(h*R+q,W*H)]
 r=t.Tk();r.attributes("-fullscreen",1);r.configure(bg="white")
 sw,sh=r.winfo_screenwidth(),r.winfo_screenheight();tw,th=W+2*M,H+2*M;s=max(1,min(sw//tw,max(1,sh-120)//th));ox=(sw-tw*s)//2;oy=max(8,(sh-th*s)//2-36)
-c=t.Canvas(r,width=sw,height=sh,bg="white",highlightthickness=0);c.pack();st=[0]
+c=t.Canvas(r,width=sw,height=sh,bg="white",highlightthickness=0);c.pack();st=[0];buf=[""]
 def x(a,b):c.create_rectangle(ox+a*s,oy+b*s,ox+(a+1)*s,oy+(b+1)*s,fill="black",outline="black")
 def g():
  c.delete("all")
@@ -31,10 +31,23 @@ def g():
    if F[st[0]][k]:x(a+M,b+M)
    k+=1
  bw=min(260,tw*s);bx=(sw-bw)//2;c.create_rectangle(bx,max(0,oy-22),bx+bw,max(0,oy-16),fill="#ddd",outline="");c.create_rectangle(bx,max(0,oy-22),bx+int(bw*(st[0]+1)/N),max(0,oy-16),fill="#333",outline="")
- c.create_text(sw//2,max(10,oy-34),fill="#444",font=("Arial",14),text="Frame %d/%d %dB c=%d"%(st[0]+1,N,len(fd),s))
+ extra=(" goto "+buf[0])if buf[0]else""
+ c.create_text(sw//2,max(10,oy-34),fill="#444",font=("Arial",14),text=("Frame %d/%d %dB c=%d"%(st[0]+1,N,len(fd),s))+extra)
 def n(e=None):st[0]=(st[0]+1)%N;g()
 def b(e=None):st[0]=(st[0]-1)%N;g()
+def key(e):
+ ch=getattr(e,"char","")
+ if ch and ch.isdigit():buf[0]=(buf[0]+ch)[-6:];g();return
+ if e.keysym in("Return","KP_Enter"):
+  if buf[0]:
+   v=int(buf[0]);buf[0]=""
+   if 1<=v<=N:st[0]=v-1
+   g()
+  else:n()
+ elif e.keysym in("space","Right")or ch=="n":n()
+ elif e.keysym in("Left","BackSpace")or ch=="p":
+  if buf[0]and e.keysym=="BackSpace":buf[0]=buf[0][:-1];g()
+  else:b()
 r.bind("<Escape>",lambda e:r.destroy())
-for k in("<Return>","<space>","<Right>","n"):r.bind(k,n)
-for k in("<Left>","<BackSpace>","p"):r.bind(k,b)
+r.bind("<Key>",key)
 g();r.mainloop()
