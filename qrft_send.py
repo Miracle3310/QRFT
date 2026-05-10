@@ -1,159 +1,40 @@
-#!/usr/bin/env python3
-"""Stdlib-only fullscreen QRFT sender.
-
-Usage on the source machine:
-
-    python qrft_send.py test.txt
-
-Optional arguments:
-
-    python qrft_send.py test.txt 0.8 0
-
-The second argument is seconds per frame. The third is loop count; 0 means
-forever. Press Escape to exit.
-"""
-
-import os
-import struct
-import sys
-import tkinter as tk
-import zlib
-
-W, H, M = 260, 120, 6
-HDR, REP = 32, 5
-MAGIC, VER = b"QF10", 1
-CAP = W * H // 8 - HDR * REP
-
-
-def bits_from_bytes(data, nbits):
-    out = []
-    for b in data:
-        for k in range(7, -1, -1):
-            out.append((b >> k) & 1)
-    if len(out) < nbits:
-        out += [0] * (nbits - len(out))
-    return out[:nbits]
-
-
-def make_frames(path):
-    with open(path, "rb") as f:
-        file_data = f.read()
-    name = os.path.basename(path).encode("utf-8")
-    if len(name) > 255:
-        raise SystemExit("file name is too long after UTF-8 encoding")
-    data = struct.pack(">H", len(name)) + name + file_data
-    fcrc = zlib.crc32(data) & 0xFFFFFFFF
-    total = max(1, (len(data) + CAP - 1) // CAP)
-    frames = []
-    for i in range(total):
-        payload = data[i * CAP : (i + 1) * CAP]
-        h = struct.pack(
-            ">4sBBHHIHII8s",
-            MAGIC,
-            VER,
-            HDR,
-            i,
-            total,
-            len(data),
-            len(payload),
-            fcrc,
-            zlib.crc32(payload) & 0xFFFFFFFF,
-            b"\0" * 8,
-        )
-        bits = bits_from_bytes(h * REP + payload, W * H)
-        frames.append(bits)
-    return file_data, frames
-
-
-def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else "test.txt"
-    delay = float(sys.argv[2]) if len(sys.argv) > 2 else 0.8
-    loops = int(sys.argv[3]) if len(sys.argv) > 3 else 0
-    data, frames = make_frames(path)
-
-    root = tk.Tk()
-    root.attributes("-fullscreen", True)
-    root.configure(bg="white")
-    root.bind("<Escape>", lambda _e: root.destroy())
-
-    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    tw, th = W + 2 * M, H + 2 * M
-    safe_h = max(1, sh - 120)
-    cell = max(1, min(sw // tw, safe_h // th))
-    ox = (sw - tw * cell) // 2
-    oy = max(8, (sh - th * cell) // 2 - 36)
-    c = tk.Canvas(root, width=sw, height=sh, bg="white", highlightthickness=0)
-    c.pack()
-    state = {"i": 0, "loop": 0}
-
-    def rect(x, y):
-        c.create_rectangle(
-            ox + x * cell,
-            oy + y * cell,
-            ox + (x + 1) * cell,
-            oy + (y + 1) * cell,
-            fill="black",
-            outline="black",
-        )
-
-    def draw():
-        c.delete("all")
-        for x in range(tw):
-            rect(x, 0)
-            rect(x, 1)
-            rect(x, th - 2)
-            rect(x, th - 1)
-            if x % 2 == 0:
-                rect(x, 3)
-        for y in range(th):
-            rect(0, y)
-            rect(1, y)
-            rect(tw - 2, y)
-            rect(tw - 1, y)
-            if y % 2 == 0:
-                rect(3, y)
-        for px, py in ((2, 2), (tw - 6, 2), (2, th - 6), (tw - 6, th - 6)):
-            for y in range(py, py + 4):
-                for x in range(px, px + 4):
-                    rect(x, y)
-
-        bits = frames[state["i"]]
-        p = 0
-        for y in range(H):
-            for x in range(W):
-                if bits[p]:
-                    rect(x + M, y + M)
-                p += 1
-        bar_w = min(260, tw * cell)
-        bar_x = (sw - bar_w) // 2
-        c.create_rectangle(bar_x, max(0, oy - 22), bar_x + bar_w, max(0, oy - 16), fill="#dddddd", outline="")
-        c.create_rectangle(
-            bar_x,
-            max(0, oy - 22),
-            bar_x + int(bar_w * (state["i"] + 1) / len(frames)),
-            max(0, oy - 16),
-            fill="#333333",
-            outline="",
-        )
-        c.create_text(
-            sw // 2,
-            max(10, oy - 34),
-            fill="#444",
-            font=("Arial", 14),
-            text="Frame {}/{}   {} bytes   cell={}".format(state["i"] + 1, len(frames), len(data), cell),
-        )
-        state["i"] += 1
-        if state["i"] >= len(frames):
-            state["i"] = 0
-            state["loop"] += 1
-            if loops and state["loop"] >= loops:
-                root.destroy()
-                return
-        root.after(int(delay * 1000), draw)
-
-    draw()
-    root.mainloop()
-
-
-if __name__ == "__main__":
-    main()
+import os,struct,sys,tkinter as t,zlib
+W,H,M,R,D=260,120,6,5,32
+C=W*H//8-D*R
+def B(s,n):
+ a=[]
+ for c in s:
+  for k in range(7,-1,-1):a+=[c>>k&1]
+ return(a+[0]*n)[:n]
+p=sys.argv[1]if len(sys.argv)>1 else"test.txt"
+fd=open(p,"rb").read();nm=os.path.basename(p).encode();d=struct.pack(">H",len(nm))+nm+fd;fc=zlib.crc32(d)&0xffffffff;N=max(1,(len(d)+C-1)//C);F=[]
+for i in range(N):
+ q=d[i*C:(i+1)*C];h=struct.pack(">4sBBHHIHII8s",b"QF10",1,D,i,N,len(d),len(q),fc,zlib.crc32(q)&0xffffffff,b"\0"*8);F+=[B(h*R+q,W*H)]
+r=t.Tk();r.attributes("-fullscreen",1);r.configure(bg="white")
+sw,sh=r.winfo_screenwidth(),r.winfo_screenheight();tw,th=W+2*M,H+2*M;s=max(1,min(sw//tw,max(1,sh-120)//th));ox=(sw-tw*s)//2;oy=max(8,(sh-th*s)//2-36)
+c=t.Canvas(r,width=sw,height=sh,bg="white",highlightthickness=0);c.pack();st=[0]
+def x(a,b):c.create_rectangle(ox+a*s,oy+b*s,ox+(a+1)*s,oy+(b+1)*s,fill="black",outline="black")
+def g():
+ c.delete("all")
+ for a in range(tw):
+  x(a,0);x(a,1);x(a,th-2);x(a,th-1)
+  if a%2<1:x(a,3)
+ for b in range(th):
+  x(0,b);x(1,b);x(tw-2,b);x(tw-1,b)
+  if b%2<1:x(3,b)
+ for a,b in((2,2),(tw-6,2),(2,th-6),(tw-6,th-6)):
+  for yy in range(b,b+4):
+   for xx in range(a,a+4):x(xx,yy)
+ k=0
+ for b in range(H):
+  for a in range(W):
+   if F[st[0]][k]:x(a+M,b+M)
+   k+=1
+ bw=min(260,tw*s);bx=(sw-bw)//2;c.create_rectangle(bx,max(0,oy-22),bx+bw,max(0,oy-16),fill="#ddd",outline="");c.create_rectangle(bx,max(0,oy-22),bx+int(bw*(st[0]+1)/N),max(0,oy-16),fill="#333",outline="")
+ c.create_text(sw//2,max(10,oy-34),fill="#444",font=("Arial",14),text="Frame %d/%d %dB c=%d"%(st[0]+1,N,len(fd),s))
+def n(e=None):st[0]=(st[0]+1)%N;g()
+def b(e=None):st[0]=(st[0]-1)%N;g()
+r.bind("<Escape>",lambda e:r.destroy())
+for k in("<Return>","<space>","<Right>","n"):r.bind(k,n)
+for k in("<Left>","<BackSpace>","p"):r.bind(k,b)
+g();r.mainloop()

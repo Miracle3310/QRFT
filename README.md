@@ -31,36 +31,22 @@ python -m pip install numpy opencv-python requests
 
 ## Files
 
-- `qrft_send.py`: readable stdlib-only sender.
-- `qrft_send_min.py`: short stdlib-only sender for keyboard-paste transfer.
+- `qrft_send.py`: short stdlib-only sender for keyboard-paste transfer.
 - `qrft_recv.py`: OpenCV/numpy screenshot decoder.
 - `qrft_protocol.md`: frame format.
 - `check_python_env.py`: stdlib-only environment probe.
-
-Local helper scripts such as `run_recv_snapshot.bat` and `run_recv_folder.bat`
-are intentionally ignored by git. Keep endpoint URLs and local paths there.
 
 ## Sender
 
 Copy the short sender to the source machine, then run:
 
 ```powershell
-python qrft_send_min.py test.txt
+python qrft_send.py test.txt
 ```
 
-Optional:
-
-```powershell
-python qrft_send_min.py test.txt 0.8 0
-```
-
-Arguments:
-
-- `test.txt`: input file.
-- `0.8`: seconds per frame.
-- `0`: loop forever. Use a positive number for finite loops.
-
-Press `Escape` on the source machine to stop fullscreen playback.
+Press `Enter`, `Space`, `Right`, or `n` on the source machine to advance one
+frame. Press `Left`, `Backspace`, or `p` to go back one frame. Press `Escape` to
+exit fullscreen playback.
 
 The sender uses a `260 x 120` data grid and lifts the frame upward before
 choosing the cell size. On 1920 x 1080 captures this usually means 7 px cells
@@ -91,3 +77,17 @@ with new captures.
 
 For self-signed HTTPS endpoints, add `--insecure`. If the capture endpoint is
 not compatible with this URL mode, keep using folder mode.
+
+For deterministic multi-frame capture, run the sender in its default key-step
+mode and let the receiver advance the source display after every screenshot:
+
+```bash
+python qrft_recv.py --url "https://your-kvm-host/api/streamer/snapshot?save=1&preview_quality=95" --advance-key Enter --folder snapshot --out out/received.bin --insecure
+```
+
+`--advance-key` derives a KVM-style `send_key` URL from the snapshot URL. If the
+keyboard endpoint is different, pass it explicitly:
+
+```bash
+python qrft_recv.py --url "https://your-kvm-host/api/streamer/snapshot?save=1&preview_quality=95" --advance-url "https://your-kvm-host/api/hid/events/send_key?key=Enter&finish=1" --folder snapshot --out out/received.bin --insecure
+```

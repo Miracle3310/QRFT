@@ -20,6 +20,7 @@ import os
 import struct
 import time
 import zlib
+from urllib.parse import quote_plus, urlsplit, urlunsplit
 
 import cv2
 import numpy as np
@@ -201,6 +202,27 @@ def snapshot_to_file(url, path, verify_tls=True):
         f.write(r.content)
 
 
+def derive_advance_url(snapshot_url, key):
+    parts = urlsplit(snapshot_url)
+    query = "key={}&finish=1".format(quote_plus(key))
+    return urlunsplit((parts.scheme, parts.netloc, "/api/hid/events/send_key", query, ""))
+
+
+def send_advance(url, verify_tls=True, method="post"):
+    try:
+        import requests
+    except ImportError as exc:
+        raise SystemExit("requests is required for key advance mode") from exc
+    method = method.lower()
+    if method == "get":
+        r = requests.get(url, timeout=5, verify=verify_tls)
+    else:
+        r = requests.post(url, timeout=5, verify=verify_tls)
+        if r.status_code in (404, 405, 501):
+            r = requests.get(url, timeout=5, verify=verify_tls)
+    r.raise_for_status()
+
+
 def collect_files(folder):
     pats = ["*.png", "*.jpg", "*.jpeg", "*.bmp"]
     out = []
@@ -319,6 +341,10 @@ def main():
     ap.add_argument("--insecure", action="store_true", help="allow self-signed HTTPS certificates")
     ap.add_argument("--clear-folder", action="store_true", help="clear existing snapshot images before URL capture")
     ap.add_argument("--keep-folder", action="store_true", help="keep existing snapshot images before URL capture")
+    ap.add_argument("--advance-key", default="", help="derive a KVM send_key URL and press this key after each capture")
+    ap.add_argument("--advance-url", default="", help="explicit URL to call after each capture to advance the sender")
+    ap.add_argument("--advance-method", default="post", choices=("post", "get"), help="HTTP method for --advance-url")
+    ap.add_argument("--advance-settle", type=float, default=0.25, help="seconds to wait after advancing before next capture")
     args = ap.parse_args()
 
     frames = {}
@@ -327,6 +353,9 @@ def main():
         os.makedirs(args.folder, exist_ok=True)
         if args.clear_folder or not args.keep_folder:
             clear_image_files(args.folder)
+        advance_url = args.advance_url
+        if not advance_url and args.advance_key:
+            advance_url = derive_advance_url(args.url, args.advance_key)
         n = 0
         while True:
             n += 1
@@ -339,7 +368,11 @@ def main():
                 break
             if args.max_captures and n >= args.max_captures:
                 break
-            time.sleep(args.interval)
+            if advance_url:
+                send_advance(advance_url, verify_tls=not args.insecure, method=args.advance_method)
+                time.sleep(args.advance_settle)
+            else:
+                time.sleep(args.interval)
     else:
         meta, _ok = ingest(collect_files(args.folder), frames)
         write_if_complete(meta, frames, args.out)
