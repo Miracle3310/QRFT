@@ -247,12 +247,19 @@ def decode_image(path):
     }, None
 
 
-def snapshot_to_file(url, path, verify_tls=True):
+def request_client(session=None):
+    if session is not None:
+        return session
     try:
         import requests
     except ImportError as exc:
-        raise SystemExit("requests is required for --url mode") from exc
-    r = requests.get(url, timeout=5, verify=verify_tls)
+        raise SystemExit("requests is required for URL mode") from exc
+    return requests
+
+
+def snapshot_to_file(url, path, verify_tls=True, session=None):
+    client = request_client(session)
+    r = client.get(url, timeout=5, verify=verify_tls)
     r.raise_for_status()
     with open(path, "wb") as f:
         f.write(r.content)
@@ -290,30 +297,27 @@ def api_key_name(key):
     return aliases.get(key.lower(), key)
 
 
-def send_key(template, snapshot_url, key, verify_tls=True, method="post"):
-    send_advance(key_url(template, snapshot_url, key), verify_tls=verify_tls, method=method)
+def send_key(template, snapshot_url, key, verify_tls=True, method="post", session=None):
+    send_advance(key_url(template, snapshot_url, key), verify_tls=verify_tls, method=method, session=session)
 
 
-def send_frame_select(template, snapshot_url, frame_idx, verify_tls=True, method="post", key_delay=0.03):
+def send_frame_select(template, snapshot_url, frame_idx, verify_tls=True, method="post", key_delay=0.03, session=None):
     for ch in str(frame_idx + 1):
-        send_key(template, snapshot_url, ch, verify_tls=verify_tls, method=method)
+        send_key(template, snapshot_url, ch, verify_tls=verify_tls, method=method, session=session)
         if key_delay:
             time.sleep(key_delay)
-    send_key(template, snapshot_url, "Enter", verify_tls=verify_tls, method=method)
+    send_key(template, snapshot_url, "Enter", verify_tls=verify_tls, method=method, session=session)
 
 
-def send_advance(url, verify_tls=True, method="post"):
-    try:
-        import requests
-    except ImportError as exc:
-        raise SystemExit("requests is required for key advance mode") from exc
+def send_advance(url, verify_tls=True, method="post", session=None):
+    client = request_client(session)
     method = method.lower()
     if method == "get":
-        r = requests.get(url, timeout=5, verify=verify_tls)
+        r = client.get(url, timeout=5, verify=verify_tls)
     else:
-        r = requests.post(url, timeout=5, verify=verify_tls)
+        r = client.post(url, timeout=5, verify=verify_tls)
         if r.status_code in (404, 405, 501):
-            r = requests.get(url, timeout=5, verify=verify_tls)
+            r = client.get(url, timeout=5, verify=verify_tls)
     r.raise_for_status()
 
 
@@ -388,7 +392,7 @@ def write_if_complete(meta, frames, out_path):
     got = meta["total"] - len(missing)
     print("received {}/{} frames ({:.1f}%)".format(got, meta["total"], got * 100.0 / meta["total"]))
     if missing:
-        print("missing:", ",".join(str(i + 1) for i in missing))
+        print("missing:", format_missing(missing))
         return False
     data = b"".join(frames[i] for i in range(meta["total"]))[: meta["file_size"]]
     crc = zlib.crc32(data) & 0xFFFFFFFF
@@ -404,6 +408,13 @@ def write_if_complete(meta, frames, out_path):
     else:
         print("wrote {} ({} bytes, crc {:08x})".format(final_path, len(file_data), crc))
     return True
+
+
+def format_missing(missing, limit=16):
+    shown = ",".join(str(i + 1) for i in missing[:limit])
+    if len(missing) > limit:
+        shown += ",...(+{})".format(len(missing) - limit)
+    return shown
 
 
 def unpack_named_payload(data):
@@ -460,7 +471,8 @@ def main():
     ap.add_argument("--advance-settle", type=float, default=0.25, help="seconds to wait after advancing before next capture")
     ap.add_argument("--targeted", action="store_true", help="request missing frame numbers instead of only pressing next")
     ap.add_argument("--poll-delay", type=float, default=0.15, help="delay between retry captures while waiting for a target frame")
-    ap.add_argument("--target-retries", type=int, default=4, help="extra captures after selecting a target frame")
+    ap.add_argument("--target-retries", type=int, default=4, help="deprecated alias for --target-timeout polling")
+    ap.add_argument("--target-timeout", type=float, default=3.0, help="seconds to wait for a requested target frame")
     ap.add_argument("--profile", action="store_true", help="print snapshot/decode/key timing")
     args = ap.parse_args()
     if args.insecure:
@@ -474,6 +486,11 @@ def main():
     frames = {}
     meta = None
     if args.url:
+        try:
+            import requests
+        except ImportError as exc:
+            raise SystemExit("requests is required for URL mode") from exc
+        session = requests.Session()
         os.makedirs(args.folder, exist_ok=True)
         if args.clear_folder or not args.keep_folder:
             clear_image_files(args.folder)
@@ -485,7 +502,7 @@ def main():
             n += 1
             path = os.path.join(args.folder, "cap_{:05d}.jpg".format(n))
             t0 = time.perf_counter()
-            snapshot_to_file(args.url, path, verify_tls=not args.insecure)
+            snapshot_to_file(args.url, path, verify_tls=not args.insecure, session=session)
             t1 = time.perf_counter()
             frame, err = decode_image(path)
             t2 = time.perf_counter()
@@ -504,16 +521,19 @@ def main():
                 target = missing[0] if missing else None
                 if target is not None:
                     kt0 = time.perf_counter()
-                    send_frame_select(args.key_url_template, args.url, target, verify_tls=not args.insecure, method=args.advance_method)
+                    send_frame_select(args.key_url_template, args.url, target, verify_tls=not args.insecure, method=args.advance_method, session=session)
                     time.sleep(args.advance_settle)
                     kt1 = time.perf_counter()
                     if args.profile:
                         print("time target {}: key+settle={:.3f}s".format(target + 1, kt1 - kt0))
-                    for _try in range(args.target_retries):
+                    deadline = time.perf_counter() + args.target_timeout
+                    attempts = 0
+                    while time.perf_counter() < deadline:
+                        attempts += 1
                         n += 1
                         path = os.path.join(args.folder, "cap_{:05d}.jpg".format(n))
                         t0 = time.perf_counter()
-                        snapshot_to_file(args.url, path, verify_tls=not args.insecure)
+                        snapshot_to_file(args.url, path, verify_tls=not args.insecure, session=session)
                         t1 = time.perf_counter()
                         frame, err = decode_image(path)
                         t2 = time.perf_counter()
@@ -526,11 +546,13 @@ def main():
                         if args.profile:
                             print("time {}: snapshot={:.3f}s decode={:.3f}s".format(os.path.basename(path), t1 - t0, t2 - t1))
                         time.sleep(args.poll_delay)
+                    if args.profile and target not in frames:
+                        print("target {} not seen after {} captures".format(target + 1, attempts))
                     if write_if_complete(meta, frames, args.out):
                         break
             elif advance_url:
                 kt0 = time.perf_counter()
-                send_advance(advance_url, verify_tls=not args.insecure, method=args.advance_method)
+                send_advance(advance_url, verify_tls=not args.insecure, method=args.advance_method, session=session)
                 time.sleep(args.advance_settle)
                 if args.profile:
                     print("time advance: key+settle={:.3f}s".format(time.perf_counter() - kt0))

@@ -36,8 +36,11 @@ def g():
 def n(e=None):st[0]=(st[0]+1)%N;g()
 def b(e=None):st[0]=(st[0]-1)%N;g()
 def key(e):
- ch=getattr(e,"char","")
+ ch=getattr(e,"char","");ks=getattr(e,"keysym","")
  if ch and ch.isdigit():buf[0]=(buf[0]+ch)[-6:];g();return
+ if ks and (ks.isdigit() or (ks.startswith("KP_") and ks[3:].isdigit()) or (ks.startswith("Digit") and ks[5:].isdigit())):
+  d=ks if ks.isdigit()else(ks[3:]if ks.startswith("KP_")else ks[5:])
+  buf[0]=(buf[0]+d)[-6:];g();return
  if e.keysym in("Return","KP_Enter"):
   if buf[0]:
    v=int(buf[0]);buf[0]=""
