@@ -53,8 +53,8 @@ choosing the cell size. On 1920 x 1080 captures this usually means 7 px cells
 and about 3740 payload bytes per frame, while avoiding bottom letterbox bars
 clipping the lower data rows.
 
-The sender also tries to hide the mouse cursor while the fullscreen window is
-active. A visible cursor over the raster area can corrupt payload bits.
+A visible cursor over the raster area can corrupt payload bits. Move the cursor
+away from the frame before capture starts.
 
 ## Receiver
 
