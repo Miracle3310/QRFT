@@ -58,6 +58,10 @@ def find_frame(gray):
     blur = cv2.GaussianBlur(gray, (3, 3), 0)
     _thr, bw = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
+    vertical_box = find_frame_by_vertical_edge(bw, gray.shape)
+    if vertical_box is not None:
+        return vertical_box
+
     # Prefer the sender's explicit top border. In KVM screenshots the outer
     # desktop/window chrome and black letterbox bars can form larger connected
     # components than the transfer frame, so contour area is a poor first cue.
@@ -84,6 +88,47 @@ def find_frame(gray):
             best_score = score
             best = (x, y, w, h)
     return best
+
+
+def true_runs(values):
+    runs = []
+    padded = np.r_[False, values, False]
+    changes = np.flatnonzero(padded[1:] != padded[:-1])
+    for start, end in zip(changes[0::2], changes[1::2]):
+        runs.append((int(start), int(end - 1), int(end - start)))
+    return runs
+
+
+def find_frame_by_vertical_edge(bw, shape):
+    ih, iw = shape[:2]
+    dark = bw > 0
+    best = None
+    for x in range(3, iw - 3):
+        count = int(np.sum(dark[:, x]))
+        if count < ih * 0.6:
+            continue
+        for y1, _y2, height in true_runs(dark[:, x]):
+            if y1 < 35 or height < ih * 0.45:
+                continue
+            cell = int(round(height / float(TH)))
+            if cell < 2:
+                continue
+            expected_h = TH * cell
+            expected_w = TW * cell
+            if abs(height - expected_h) > max(4, cell * 3):
+                continue
+            if x + expected_w > iw + cell or y1 + expected_h > ih + cell:
+                continue
+            top = dark[y1 : min(ih, y1 + max(2, cell * 2)), x : min(iw, x + expected_w)]
+            left = dark[y1 : min(ih, y1 + expected_h), x : min(iw, x + max(2, cell * 2))]
+            if top.size and left.size and np.mean(top) > 0.45 and np.mean(left) > 0.45:
+                score = height - abs(height - expected_h) * 5 - x * 0.01
+                if best is None or score > best[0]:
+                    best = (score, x, y1, expected_w, expected_h)
+    if best is None:
+        return None
+    _score, x, y, width, height = best
+    return (x, y, width, height)
 
 
 def dark_runs(row):
@@ -149,20 +194,24 @@ def sample_bits(gray, box):
     thr, _mask = cv2.threshold(crop, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     cell_x = bw / float(TW)
     cell_y = bh / float(TH)
-    bits = []
-    for gy in range(H):
-        cy = y0 + (gy + M + 0.5) * cell_y
-        ry = max(1, int(cell_y * 0.25))
-        y1 = max(0, int(cy - ry))
-        y2 = min(gray.shape[0], int(cy + ry + 1))
-        for gx in range(W):
-            cx = x0 + (gx + M + 0.5) * cell_x
-            rx = max(1, int(cell_x * 0.25))
-            x1 = max(0, int(cx - rx))
-            x2 = min(gray.shape[1], int(cx + rx + 1))
-            patch = gray[y1:y2, x1:x2]
-            bits.append(1 if float(np.mean(patch)) < thr else 0)
-    return bits
+    rx = max(1, int(cell_x * 0.25))
+    ry = max(1, int(cell_y * 0.25))
+    xs = x0 + (np.arange(W) + M + 0.5) * cell_x
+    ys = y0 + (np.arange(H) + M + 0.5) * cell_y
+    x1 = np.clip((xs - rx).astype(np.int32), 0, gray.shape[1])
+    x2 = np.clip((xs + rx + 1).astype(np.int32), 0, gray.shape[1])
+    y1 = np.clip((ys - ry).astype(np.int32), 0, gray.shape[0])
+    y2 = np.clip((ys + ry + 1).astype(np.int32), 0, gray.shape[0])
+    integral = cv2.integral(gray, sdepth=cv2.CV_64F)
+    sums = (
+        integral[y2[:, None], x2[None, :]]
+        - integral[y1[:, None], x2[None, :]]
+        - integral[y2[:, None], x1[None, :]]
+        + integral[y1[:, None], x1[None, :]]
+    )
+    areas = (y2 - y1)[:, None] * (x2 - x1)[None, :]
+    means = sums / np.maximum(areas, 1)
+    return (means < thr).astype(np.uint8).ravel().tolist()
 
 
 def decode_image(path):
@@ -394,6 +443,13 @@ def main():
     ap.add_argument("--target-retries", type=int, default=4, help="extra captures after selecting a target frame")
     ap.add_argument("--profile", action="store_true", help="print snapshot/decode/key timing")
     args = ap.parse_args()
+    if args.insecure:
+        try:
+            import urllib3
+
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        except ImportError:
+            pass
 
     frames = {}
     meta = None
