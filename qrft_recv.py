@@ -260,14 +260,34 @@ def snapshot_to_file(url, path, verify_tls=True):
 
 def derive_advance_url(snapshot_url, key):
     parts = urlsplit(snapshot_url)
-    query = "key={}&finish=1".format(quote_plus(key))
+    query = "key={}&finish=1".format(quote_plus(api_key_name(key)))
     return urlunsplit((parts.scheme, parts.netloc, "/api/hid/events/send_key", query, ""))
 
 
 def key_url(template, snapshot_url, key):
     if template:
-        return template.format(key=quote_plus(str(key)))
+        return template.format(key=quote_plus(api_key_name(key)))
     return derive_advance_url(snapshot_url, str(key))
+
+
+def api_key_name(key):
+    key = str(key)
+    if len(key) == 1 and key.isdigit():
+        return "Digit{}".format(key)
+    if len(key) == 1 and key.isalpha():
+        return "Key{}".format(key.upper())
+    aliases = {
+        "return": "Enter",
+        "space": "Space",
+        "esc": "Escape",
+        "escape": "Escape",
+        "backspace": "Backspace",
+        "left": "ArrowLeft",
+        "right": "ArrowRight",
+        "up": "ArrowUp",
+        "down": "ArrowDown",
+    }
+    return aliases.get(key.lower(), key)
 
 
 def send_key(template, snapshot_url, key, verify_tls=True, method="post"):

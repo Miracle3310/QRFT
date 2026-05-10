@@ -97,4 +97,7 @@ explicitly:
 python qrft_recv.py --url "https://your-kvm-host/api/streamer/snapshot?save=1&preview_quality=95" --key-url-template "https://your-kvm-host/api/hid/events/send_key?key={key}&finish=1" --targeted --folder snapshot --out out/received.bin --insecure
 ```
 
+For targeted mode, number keys are sent as `Digit0` through `Digit9`, matching
+common KVM keyboard event naming.
+
 Add `--profile` to print snapshot, decode, and key/settle timing.
