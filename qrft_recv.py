@@ -321,6 +321,19 @@ def send_advance(url, verify_tls=True, method="post", session=None):
     r.raise_for_status()
 
 
+def call_url(url, verify_tls=True, method="post", session=None):
+    if not url:
+        return
+    client = request_client(session)
+    if method.lower() == "get":
+        r = client.get(url, timeout=5, verify=verify_tls)
+    else:
+        r = client.post(url, timeout=5, verify=verify_tls)
+        if r.status_code in (404, 405, 501):
+            r = client.get(url, timeout=5, verify=verify_tls)
+    r.raise_for_status()
+
+
 def collect_files(folder):
     pats = ["*.png", "*.jpg", "*.jpeg", "*.bmp"]
     out = []
@@ -473,6 +486,7 @@ def main():
     ap.add_argument("--poll-delay", type=float, default=0.15, help="delay between retry captures while waiting for a target frame")
     ap.add_argument("--target-retries", type=int, default=4, help="deprecated alias for --target-timeout polling")
     ap.add_argument("--target-timeout", type=float, default=3.0, help="seconds to wait for a requested target frame")
+    ap.add_argument("--park-mouse-url", default="", help="optional URL to call once before capture to move/hide the pointer")
     ap.add_argument("--profile", action="store_true", help="print snapshot/decode/key timing")
     args = ap.parse_args()
     if args.insecure:
@@ -494,6 +508,7 @@ def main():
         os.makedirs(args.folder, exist_ok=True)
         if args.clear_folder or not args.keep_folder:
             clear_image_files(args.folder)
+        call_url(args.park_mouse_url, verify_tls=not args.insecure, method=args.advance_method, session=session)
         advance_url = args.advance_url
         if not advance_url and args.advance_key:
             advance_url = derive_advance_url(args.url, args.advance_key)

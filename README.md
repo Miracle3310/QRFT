@@ -53,6 +53,9 @@ choosing the cell size. On 1920 x 1080 captures this usually means 7 px cells
 and about 3740 payload bytes per frame, while avoiding bottom letterbox bars
 clipping the lower data rows.
 
+The sender also tries to hide the mouse cursor while the fullscreen window is
+active. A visible cursor over the raster area can corrupt payload bits.
+
 ## Receiver
 
 Decode screenshots already saved in a folder:
@@ -86,8 +89,7 @@ python qrft_recv.py --url "https://your-kvm-host/api/streamer/snapshot?save=1&pr
 ```
 
 In targeted mode, the receiver types a frame number followed by `Enter` to make
-the sender jump directly to a missing frame. This avoids relying on fixed timing
-or repeatedly cycling through all frames.
+the sender jump directly to a missing frame.
 
 `--advance-key` derives a KVM-style `send_key` URL from the snapshot URL for
 simple next-frame mode. If the keyboard endpoint is different, pass a template
@@ -101,3 +103,6 @@ For targeted mode, number keys are sent as `Digit0` through `Digit9`, matching
 common KVM keyboard event naming.
 
 Add `--profile` to print snapshot, decode, and key/settle timing.
+
+If the capture device exposes a mouse move endpoint, `--park-mouse-url` can call
+it once before capture starts.

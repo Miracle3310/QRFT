@@ -11,6 +11,8 @@ fd=open(p,"rb").read();nm=os.path.basename(p).encode();d=struct.pack(">H",len(nm
 for i in range(N):
  q=d[i*C:(i+1)*C];h=struct.pack(">4sBBHHIHII8s",b"QF10",1,D,i,N,len(d),len(q),fc,zlib.crc32(q)&0xffffffff,b"\0"*8);F+=[B(h*R+q,W*H)]
 r=t.Tk();r.attributes("-fullscreen",1);r.configure(bg="white")
+try:r.configure(cursor="none")
+except Exception:pass
 sw,sh=r.winfo_screenwidth(),r.winfo_screenheight();tw,th=W+2*M,H+2*M;s=max(1,min(sw//tw,max(1,sh-120)//th));ox=(sw-tw*s)//2;oy=max(8,(sh-th*s)//2-36)
 c=t.Canvas(r,width=sw,height=sh,bg="white",highlightthickness=0);c.pack();st=[0];buf=[""]
 def x(a,b):c.create_rectangle(ox+a*s,oy+b*s,ox+(a+1)*s,oy+(b+1)*s,fill="black",outline="black")
