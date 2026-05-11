@@ -366,6 +366,22 @@ def clear_image_files(folder):
     print("cleared {} image files from {}".format(removed, folder))
 
 
+def capture_decode_accept(args, session, n, frames, meta):
+    path = os.path.join(args.folder, "cap_{:05d}.jpg".format(n))
+    t0 = time.perf_counter()
+    snapshot_to_file(args.url, path, verify_tls=not args.insecure, session=session)
+    t1 = time.perf_counter()
+    frame, err = decode_image(path)
+    t2 = time.perf_counter()
+    if err:
+        print("skip {}: {}".format(os.path.basename(path), err))
+    else:
+        meta, _is_new = accept_frame(frame, frames, meta, os.path.basename(path))
+    if args.profile:
+        print("time {}: snapshot={:.3f}s decode={:.3f}s".format(os.path.basename(path), t1 - t0, t2 - t1))
+    return meta, frame, err
+
+
 def ingest(paths, frames):
     meta = None
     ok = 0
@@ -494,6 +510,8 @@ def main():
     ap.add_argument("--key-url-template", default="", help="URL template for key presses, using {key} placeholder")
     ap.add_argument("--advance-method", default="post", choices=("post", "get"), help="HTTP method for --advance-url")
     ap.add_argument("--advance-settle", type=float, default=0.25, help="seconds to wait after advancing before next capture")
+    ap.add_argument("--adaptive-settle", action="store_true", help="poll immediately after targeted advance instead of sleeping a fixed settle time")
+    ap.add_argument("--scan-captures", type=int, default=0, help="capture this many frames before targeted repair, useful with sender --auto-advance")
     ap.add_argument("--targeted", action="store_true", help="request missing frame numbers instead of only pressing next")
     ap.add_argument("--poll-delay", type=float, default=0.15, help="delay between retry captures while waiting for a target frame")
     ap.add_argument("--target-retries", type=int, default=4, help="deprecated alias for --target-timeout polling")
@@ -539,31 +557,25 @@ def main():
         if not advance_url and args.advance_key:
             advance_url = derive_advance_url(args.url, args.advance_key)
         n = 0
+        if args.scan_captures:
+            for _i in range(args.scan_captures):
+                n += 1
+                meta, _frame, _err = capture_decode_accept(args, session, n, frames, meta)
+                if write_if_complete(meta, frames, args.out):
+                    return
+                if args.max_captures and n >= args.max_captures:
+                    return
+                if args.interval:
+                    time.sleep(args.interval)
         while True:
-            n += 1
-            path = os.path.join(args.folder, "cap_{:05d}.jpg".format(n))
-            t0 = time.perf_counter()
-            snapshot_to_file(args.url, path, verify_tls=not args.insecure, session=session)
-            t1 = time.perf_counter()
-            frame, err = decode_image(path)
-            t2 = time.perf_counter()
-            if err:
-                print("skip {}: {}".format(os.path.basename(path), err))
-            else:
-                meta, _is_new = accept_frame(frame, frames, meta, os.path.basename(path))
-            if args.profile:
-                print("time {}: snapshot={:.3f}s decode={:.3f}s".format(os.path.basename(path), t1 - t0, t2 - t1))
-            if write_if_complete(meta, frames, args.out):
-                break
-            if args.max_captures and n >= args.max_captures:
-                break
             if args.targeted and meta:
                 missing = [i for i in range(meta["total"]) if i not in frames]
                 target = missing[0] if missing else None
                 if target is not None:
                     kt0 = time.perf_counter()
                     send_frame_select(args.key_url_template, args.url, target, verify_tls=not args.insecure, method=args.advance_method, session=session)
-                    time.sleep(args.advance_settle)
+                    if not args.adaptive_settle:
+                        time.sleep(args.advance_settle)
                     kt1 = time.perf_counter()
                     if args.profile:
                         print("time target {}: key+settle={:.3f}s".format(target + 1, kt1 - kt0))
@@ -572,26 +584,26 @@ def main():
                     while time.perf_counter() < deadline:
                         attempts += 1
                         n += 1
-                        path = os.path.join(args.folder, "cap_{:05d}.jpg".format(n))
-                        t0 = time.perf_counter()
-                        snapshot_to_file(args.url, path, verify_tls=not args.insecure, session=session)
-                        t1 = time.perf_counter()
-                        frame, err = decode_image(path)
-                        t2 = time.perf_counter()
-                        if err:
-                            print("skip {}: {}".format(os.path.basename(path), err))
-                        else:
-                            meta, _is_new = accept_frame(frame, frames, meta, os.path.basename(path))
-                            if frame["idx"] == target and target in frames:
-                                break
-                        if args.profile:
-                            print("time {}: snapshot={:.3f}s decode={:.3f}s".format(os.path.basename(path), t1 - t0, t2 - t1))
+                        meta, frame, _err = capture_decode_accept(args, session, n, frames, meta)
+                        if frame and frame["idx"] == target and target in frames:
+                            break
+                        if args.max_captures and n >= args.max_captures:
+                            break
                         time.sleep(args.poll_delay)
                     if args.profile and target not in frames:
                         print("target {} not seen after {} captures".format(target + 1, attempts))
                     if write_if_complete(meta, frames, args.out):
                         break
-            elif advance_url:
+                    if args.max_captures and n >= args.max_captures:
+                        break
+                    continue
+            n += 1
+            meta, _frame, _err = capture_decode_accept(args, session, n, frames, meta)
+            if write_if_complete(meta, frames, args.out):
+                break
+            if args.max_captures and n >= args.max_captures:
+                break
+            if advance_url:
                 kt0 = time.perf_counter()
                 send_advance(advance_url, verify_tls=not args.insecure, method=args.advance_method, session=session)
                 time.sleep(args.advance_settle)

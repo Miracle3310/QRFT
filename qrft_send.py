@@ -1,4 +1,4 @@
-import os,struct,sys,tkinter as t,zlib
+import argparse,os,struct,tkinter as t,zlib
 W,H,M,R,D=260,120,6,5,32
 C=W*H//8-D*R
 def B(s,n):
@@ -6,7 +6,11 @@ def B(s,n):
  for c in s:
   for k in range(7,-1,-1):a+=[c>>k&1]
  return(a+[0]*n)[:n]
-p=sys.argv[1]if len(sys.argv)>1 else"test.txt"
+ap=argparse.ArgumentParser()
+ap.add_argument("file",nargs="?",default="test.txt")
+ap.add_argument("--auto-advance",type=float,default=0,help="seconds between automatic frame advances")
+args=ap.parse_args()
+p=args.file
 fd=open(p,"rb").read();nm=os.path.basename(p).encode();d=struct.pack(">H",len(nm))+nm+fd;fc=zlib.crc32(d)&0xffffffff;N=max(1,(len(d)+C-1)//C);F=[]
 for i in range(N):
  q=d[i*C:(i+1)*C];h=struct.pack(">4sBBHHIHII8s",b"QF10",1,D,i,N,len(d),len(q),fc,zlib.crc32(q)&0xffffffff,b"\0"*8);F+=[B(h*R+q,W*H)]
@@ -35,6 +39,9 @@ def g():
  c.create_text(sw//2,max(10,oy-34),fill="#444",font=("Arial",14),text=("Frame %d/%d %dB c=%d"%(st[0]+1,N,len(fd),s))+extra)
 def n(e=None):st[0]=(st[0]+1)%N;g()
 def b(e=None):st[0]=(st[0]-1)%N;g()
+def auto():
+ n()
+ r.after(max(1,int(args.auto_advance*1000)),auto)
 def key(e):
  ch=getattr(e,"char","");ks=getattr(e,"keysym","")
  if ch and ch.isdigit():buf[0]=(buf[0]+ch)[-6:];g();return
@@ -53,4 +60,6 @@ def key(e):
   else:b()
 r.bind("<Escape>",lambda e:r.destroy())
 r.bind("<Key>",key)
-g();r.mainloop()
+g()
+if args.auto_advance>0:r.after(max(1,int(args.auto_advance*1000)),auto)
+r.mainloop()

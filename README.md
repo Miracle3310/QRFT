@@ -104,6 +104,18 @@ common KVM keyboard event naming.
 
 Add `--profile` to print snapshot, decode, and key/settle timing.
 
+For faster transfers, run the sender with automatic playback:
+
+```bash
+python qrft_send.py test.bin --auto-advance 0.4
+```
+
+Then let the receiver scan frames first and repair missing frames afterwards:
+
+```bash
+python qrft_recv.py --url "https://your-kvm-host/api/streamer/snapshot?save=1&preview_quality=95" --advance-key Enter --targeted --scan-captures 200 --adaptive-settle --folder snapshot --out out/received.bin --insecure
+```
+
 For One-KVM/PiKVM relative HID mouse mode, add `--park-mouse-relative` to push
 the pointer toward the top-right corner before capture starts. Override the move
 with `--park-mouse-dx`, `--park-mouse-dy`, and `--park-mouse-steps` if needed.
