@@ -271,6 +271,18 @@ def derive_advance_url(snapshot_url, key):
     return urlunsplit((parts.scheme, parts.netloc, "/api/hid/events/send_key", query, ""))
 
 
+def derive_mouse_relative_url(snapshot_url, dx, dy):
+    parts = urlsplit(snapshot_url)
+    query = "delta_x={}&delta_y={}".format(int(dx), int(dy))
+    return urlunsplit((parts.scheme, parts.netloc, "/api/hid/events/send_mouse_relative", query, ""))
+
+
+def park_mouse_relative(snapshot_url, dx, dy, steps, verify_tls=True, method="post", session=None):
+    url = derive_mouse_relative_url(snapshot_url, dx, dy)
+    for _i in range(max(1, int(steps))):
+        call_url(url, verify_tls=verify_tls, method=method, session=session)
+
+
 def key_url(template, snapshot_url, key):
     if template:
         return template.format(key=quote_plus(api_key_name(key)))
@@ -487,6 +499,10 @@ def main():
     ap.add_argument("--target-retries", type=int, default=4, help="deprecated alias for --target-timeout polling")
     ap.add_argument("--target-timeout", type=float, default=3.0, help="seconds to wait for a requested target frame")
     ap.add_argument("--park-mouse-url", default="", help="optional URL to call once before capture to move/hide the pointer")
+    ap.add_argument("--park-mouse-relative", action="store_true", help="move relative HID pointer before capture")
+    ap.add_argument("--park-mouse-dx", type=int, default=32767, help="relative pointer X delta for --park-mouse-relative")
+    ap.add_argument("--park-mouse-dy", type=int, default=-32768, help="relative pointer Y delta for --park-mouse-relative")
+    ap.add_argument("--park-mouse-steps", type=int, default=3, help="number of relative pointer moves before capture")
     ap.add_argument("--profile", action="store_true", help="print snapshot/decode/key timing")
     args = ap.parse_args()
     if args.insecure:
@@ -508,6 +524,16 @@ def main():
         os.makedirs(args.folder, exist_ok=True)
         if args.clear_folder or not args.keep_folder:
             clear_image_files(args.folder)
+        if args.park_mouse_relative:
+            park_mouse_relative(
+                args.url,
+                args.park_mouse_dx,
+                args.park_mouse_dy,
+                args.park_mouse_steps,
+                verify_tls=not args.insecure,
+                method=args.advance_method,
+                session=session,
+            )
         call_url(args.park_mouse_url, verify_tls=not args.insecure, method=args.advance_method, session=session)
         advance_url = args.advance_url
         if not advance_url and args.advance_key:

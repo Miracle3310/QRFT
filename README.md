@@ -104,5 +104,8 @@ common KVM keyboard event naming.
 
 Add `--profile` to print snapshot, decode, and key/settle timing.
 
-If the capture device exposes a mouse move endpoint, `--park-mouse-url` can call
-it once before capture starts.
+For One-KVM/PiKVM relative HID mouse mode, add `--park-mouse-relative` to push
+the pointer toward the top-right corner before capture starts. Override the move
+with `--park-mouse-dx`, `--park-mouse-dy`, and `--park-mouse-steps` if needed.
+If the capture device uses a different mouse endpoint, `--park-mouse-url` can
+call it once before capture starts.
