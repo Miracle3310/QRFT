@@ -44,6 +44,10 @@ Copy the short sender to the source machine, then run:
 python qrft_send.py test.txt
 ```
 
+The sender auto-advances every 0.4 seconds by default for faster capture. Use
+`--auto-advance 0.5` to slow it down if the capture path drops frames, or
+`--manual` to disable automatic playback.
+
 Press `Enter`, `Space`, `Right`, or `n` on the source machine to advance one
 frame. Press `Left`, `Backspace`, or `p` to go back one frame. Press `Escape` to
 exit fullscreen playback.
@@ -104,10 +108,10 @@ common KVM keyboard event naming.
 
 Add `--profile` to print snapshot, decode, and key/settle timing.
 
-For faster transfers, run the sender with automatic playback:
+For faster transfers, keep the sender's default automatic playback, or tune it:
 
 ```bash
-python qrft_send.py test.bin --auto-advance 0.4
+python qrft_send.py test.bin --auto-advance 0.3
 ```
 
 Then let the receiver scan frames first and repair missing frames afterwards:

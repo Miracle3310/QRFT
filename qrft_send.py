@@ -8,8 +8,10 @@ def B(s,n):
  return(a+[0]*n)[:n]
 ap=argparse.ArgumentParser()
 ap.add_argument("file",nargs="?",default="test.txt")
-ap.add_argument("--auto-advance",type=float,default=0,help="seconds between automatic frame advances")
+ap.add_argument("--auto-advance",type=float,default=0.4,help="seconds between automatic frame advances")
+ap.add_argument("--manual",action="store_true",help="disable automatic frame advances")
 args=ap.parse_args()
+if args.manual:args.auto_advance=0
 p=args.file
 fd=open(p,"rb").read();nm=os.path.basename(p).encode();d=struct.pack(">H",len(nm))+nm+fd;fc=zlib.crc32(d)&0xffffffff;N=max(1,(len(d)+C-1)//C);F=[]
 for i in range(N):
